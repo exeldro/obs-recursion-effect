@@ -5,3 +5,4 @@
 #define S_OFFSET_Y "offset_y"
 #define S_SCALE_X "scale_x"
 #define S_SCALE_Y "scale_y"
+#define S_INVERSED "inversed"

@@ -22,6 +22,7 @@ struct recursion_effect_info {
 	uint32_t cy;
 	bool target_valid;
 	bool processed_frame;
+	bool inversed;
 };
 
 static const char *recursion_effect_get_name(void *type_data)
@@ -192,6 +193,7 @@ static void recursion_effect_update(void *data, obs_data_t *settings)
 		(float)obs_data_get_double(settings, S_SCALE_X);
 	recursion_effect->scale.y =
 		(float)obs_data_get_double(settings, S_SCALE_Y);
+	recursion_effect->inversed = obs_data_get_bool(settings, S_INVERSED);
 
 	/* full reset */
 	recursion_effect->cx = 0;
@@ -253,7 +255,12 @@ static void recursion_effect_video_render(void *data, gs_effect_t *effect)
 		gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
 		gs_ortho(0.0f, (float)f->cx, 0.0f, (float)f->cy, -100.0f,
 			 100.0f);
-
+		if (f->inversed) {
+			if (target == parent && !custom_draw && !async)
+				obs_source_default_render(target);
+			else
+				obs_source_video_render(target);
+		}
 		gs_texture_t *tex = gs_texrender_get_texture(frame.render);
 		if (tex) {
 			gs_effect_t *effect2 =
@@ -271,10 +278,12 @@ static void recursion_effect_video_render(void *data, gs_effect_t *effect)
 			gs_matrix_pop();
 		}
 
-		if (target == parent && !custom_draw && !async)
-			obs_source_default_render(target);
-		else
-			obs_source_video_render(target);
+		if (!f->inversed) {
+			if (target == parent && !custom_draw && !async)
+				obs_source_default_render(target);
+			else
+				obs_source_video_render(target);
+		}
 
 		gs_texrender_end(f->render);
 	}
@@ -346,6 +355,8 @@ static obs_properties_t *recursion_effect_properties(void *data)
 				 0.001, 1000.0, 0.001);
 	obs_properties_add_float(props, S_SCALE_Y, obs_module_text("ScaleY"),
 				 0.001, 1000.0, 0.001);
+	obs_properties_add_bool(props, S_INVERSED, obs_module_text("Inversed"));
+
 	return props;
 }
 
