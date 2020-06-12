@@ -23,6 +23,7 @@ struct recursion_effect_info {
 	bool target_valid;
 	bool processed_frame;
 	bool inversed;
+	long long reset_trigger;
 };
 
 static const char *recursion_effect_get_name(void *type_data)
@@ -40,8 +41,10 @@ static void free_textures(struct recursion_effect_info *f)
 		gs_texrender_destroy(frame.render);
 	}
 	circlebuf_free(&f->frames);
-	gs_texrender_destroy(f->render);
-	f->render = NULL;
+	if (f->render) {
+		gs_texrender_destroy(f->render);
+		f->render = NULL;
+	}
 	obs_leave_graphics();
 }
 
@@ -53,7 +56,7 @@ static size_t num_frames(struct circlebuf *buf)
 static void update_interval(struct recursion_effect_info *f,
 			    uint64_t new_interval_ns)
 {
-	if (!f->target_valid) {
+	if (!f->target_valid || !new_interval_ns) {
 		free_textures(f);
 		return;
 	}
@@ -65,6 +68,8 @@ static void update_interval(struct recursion_effect_info *f,
 	}
 	f->interval_ns = new_interval_ns;
 	size_t num = (size_t)(f->delay_ns / new_interval_ns);
+	if (!num)
+		num = 1;
 
 	if (num > num_frames(&f->frames)) {
 		size_t prev_num = num_frames(&f->frames);
@@ -181,9 +186,14 @@ static void recursion_effect_update(void *data, obs_data_t *settings)
 				recursion_effect, recursion_effect);
 		}
 	}
-
-	recursion_effect->delay_ns =
+	uint64_t delay_ns =
 		(uint64_t)obs_data_get_int(settings, S_DELAY_MS) * 1000000ULL;
+	if (delay_ns != recursion_effect->delay_ns) {
+		recursion_effect->delay_ns = delay_ns;
+		if (recursion_effect->interval_ns)
+			update_interval(recursion_effect,
+					recursion_effect->interval_ns);
+	}
 
 	recursion_effect->offset.x =
 		(float)obs_data_get_double(settings, S_OFFSET_X);
@@ -194,12 +204,8 @@ static void recursion_effect_update(void *data, obs_data_t *settings)
 	recursion_effect->scale.y =
 		(float)obs_data_get_double(settings, S_SCALE_Y);
 	recursion_effect->inversed = obs_data_get_bool(settings, S_INVERSED);
-
-	/* full reset */
-	recursion_effect->cx = 0;
-	recursion_effect->cy = 0;
-	recursion_effect->interval_ns = 0;
-	free_textures(recursion_effect);
+	recursion_effect->reset_trigger =
+		obs_data_get_int(settings, S_RESET_TRIGGER);
 }
 
 static void draw_frame(struct recursion_effect_info *f)
@@ -335,6 +341,12 @@ static void recursion_effect_tick(void *data, float t)
 	struct recursion_effect_info *f = data;
 
 	f->processed_frame = false;
+	if (f->reset_trigger == RESET_TRIGGER_ENABLE &&
+	    !obs_source_enabled(f->source)) {
+		f->interval_ns = 0;
+		free_textures(f);
+		return;
+	}
 
 	if (check_size(f))
 		return;
@@ -352,10 +364,27 @@ static obs_properties_t *recursion_effect_properties(void *data)
 	obs_properties_add_float(props, S_OFFSET_Y, obs_module_text("OffsetY"),
 				 -1000.0, 1000.0, 1);
 	obs_properties_add_float(props, S_SCALE_X, obs_module_text("ScaleX"),
-				 0.001, 1000.0, 0.001);
+				 0.01, 1000.0, 0.01);
 	obs_properties_add_float(props, S_SCALE_Y, obs_module_text("ScaleY"),
-				 0.001, 1000.0, 0.001);
+				 0.01, 1000.0, 0.01);
 	obs_properties_add_bool(props, S_INVERSED, obs_module_text("Inversed"));
+
+	p = obs_properties_add_list(props, S_RESET_TRIGGER,
+				    obs_module_text("ResetTrigger"),
+				    OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+
+	obs_property_list_add_int(p, obs_module_text("ResetTrigger.None"),
+				  RESET_TRIGGER_NONE);
+	obs_property_list_add_int(p, obs_module_text("ResetTrigger.Show"),
+				  RESET_TRIGGER_SHOW);
+	obs_property_list_add_int(p, obs_module_text("ResetTrigger.Hide"),
+				  RESET_TRIGGER_HIDE);
+	obs_property_list_add_int(p, obs_module_text("ResetTrigger.Activate"),
+				  RESET_TRIGGER_ACTIVATE);
+	obs_property_list_add_int(p, obs_module_text("ResetTrigger.Deactivate"),
+				  RESET_TRIGGER_DEACTIVATE);
+	obs_property_list_add_int(p, obs_module_text("ResetTrigger.Enable"),
+				  RESET_TRIGGER_ENABLE);
 
 	return props;
 }
@@ -364,6 +393,34 @@ void recursion_effect_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_double(settings, S_SCALE_X, 1.0);
 	obs_data_set_default_double(settings, S_SCALE_Y, 1.0);
+}
+
+void recursion_effect_show(void *data)
+{
+	struct recursion_effect_info *f = data;
+	if (f->reset_trigger == RESET_TRIGGER_SHOW)
+		reset_textures(f);
+}
+
+void recursion_effect_hide(void *data)
+{
+	struct recursion_effect_info *f = data;
+	if (f->reset_trigger == RESET_TRIGGER_HIDE)
+		reset_textures(f);
+}
+
+void recursion_effect_activate(void *data)
+{
+	struct recursion_effect_info *f = data;
+	if (f->reset_trigger == RESET_TRIGGER_ACTIVATE)
+		reset_textures(f);
+}
+
+void recursion_effect_deactivate(void *data)
+{
+	struct recursion_effect_info *f = data;
+	if (f->reset_trigger == RESET_TRIGGER_DEACTIVATE)
+		reset_textures(f);
 }
 
 struct obs_source_info recursion_effect_filter = {
@@ -379,6 +436,10 @@ struct obs_source_info recursion_effect_filter = {
 	.video_tick = recursion_effect_tick,
 	.get_properties = recursion_effect_properties,
 	.get_defaults = recursion_effect_defaults,
+	.show = recursion_effect_show,
+	.hide = recursion_effect_hide,
+	.activate = recursion_effect_activate,
+	.deactivate = recursion_effect_deactivate,
 };
 
 OBS_DECLARE_MODULE()
