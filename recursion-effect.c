@@ -16,6 +16,7 @@ struct recursion_effect_info {
 	uint64_t delay_ns;
 	struct vec2 offset;
 	struct vec2 scale;
+	float rotation;
 
 	uint64_t interval_ns;
 	uint32_t cx;
@@ -203,6 +204,8 @@ static void recursion_effect_update(void *data, obs_data_t *settings)
 		(float)obs_data_get_double(settings, S_SCALE_X);
 	recursion_effect->scale.y =
 		(float)obs_data_get_double(settings, S_SCALE_Y);
+	recursion_effect->rotation =
+		(float)obs_data_get_double(settings, S_ROTATION);
 	recursion_effect->inversed = obs_data_get_bool(settings, S_INVERSED);
 	recursion_effect->reset_trigger =
 		obs_data_get_int(settings, S_RESET_TRIGGER);
@@ -274,6 +277,8 @@ static void recursion_effect_video_render(void *data, gs_effect_t *effect)
 			gs_matrix_push();
 			gs_matrix_translate3f(f->offset.x, f->offset.y, 0.0f);
 			gs_matrix_scale3f(f->scale.x, f->scale.y, 1.0f);
+			gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, RAD(f->rotation));
+
 			gs_eparam_t *image =
 				gs_effect_get_param_by_name(effect2, "image");
 			gs_effect_set_texture(image, tex);
@@ -310,15 +315,13 @@ static void recursion_effect_video_render(void *data, gs_effect_t *effect)
 static inline bool check_size(struct recursion_effect_info *f)
 {
 	obs_source_t *target = obs_filter_get_target(f->source);
-	uint32_t cx;
-	uint32_t cy;
 
 	f->target_valid = !!target;
 	if (!f->target_valid)
 		return true;
 
-	cx = obs_source_get_base_width(target);
-	cy = obs_source_get_base_height(target);
+	const uint32_t cx = obs_source_get_base_width(target);
+	const uint32_t cy = obs_source_get_base_height(target);
 
 	f->target_valid = !!cx && !!cy;
 	if (!f->target_valid)
@@ -367,6 +370,8 @@ static obs_properties_t *recursion_effect_properties(void *data)
 				 0.01, 1000.0, 0.01);
 	obs_properties_add_float(props, S_SCALE_Y, obs_module_text("ScaleY"),
 				 0.01, 1000.0, 0.01);
+	obs_properties_add_float(props, S_ROTATION, obs_module_text("Rotation"),
+				 -360.0, 360.0, 1.0);
 	obs_properties_add_bool(props, S_INVERSED, obs_module_text("Inversed"));
 
 	p = obs_properties_add_list(props, S_RESET_TRIGGER,
