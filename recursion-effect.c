@@ -1,6 +1,7 @@
 #include <obs-module.h>
 #include <util/circlebuf.h>
 #include "recursion-effect.h"
+#include "version.h"
 
 struct frame {
 	gs_texrender_t *render;
@@ -462,6 +463,7 @@ MODULE_EXPORT const char *obs_module_name(void)
 
 bool obs_module_load(void)
 {
+	blog(LOG_INFO, "[Recursion Effect] loaded version %s", PROJECT_VERSION);
 	obs_register_source(&recursion_effect_filter);
 	return true;
 }
