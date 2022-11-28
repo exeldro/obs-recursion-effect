@@ -122,28 +122,11 @@ static inline void reset_textures(struct recursion_effect_info *f)
 	check_interval(f);
 }
 
-static void *recursion_effect_create(obs_data_t *settings, obs_source_t *source)
-{
-	struct recursion_effect_info *recursion_effect =
-		bzalloc(sizeof(struct recursion_effect_info));
-	recursion_effect->source = source;
-	recursion_effect->hotkey = OBS_INVALID_HOTKEY_PAIR_ID;
-	return recursion_effect;
-}
-
-static void recursion_effect_destroy(void *data)
-{
-	struct recursion_effect_info *recursion_effect = data;
-	if (recursion_effect->hotkey != OBS_INVALID_HOTKEY_PAIR_ID) {
-		obs_hotkey_pair_unregister(recursion_effect->hotkey);
-	}
-	free_textures(recursion_effect);
-	bfree(recursion_effect);
-}
-
 bool recursion_effect_enable_hotkey(void *data, obs_hotkey_pair_id id,
 				    obs_hotkey_t *hotkey, bool pressed)
 {
+	UNUSED_PARAMETER(id);
+	UNUSED_PARAMETER(hotkey);
 	struct recursion_effect_info *recursion_effect = data;
 	if (!pressed)
 		return false;
@@ -159,6 +142,8 @@ bool recursion_effect_enable_hotkey(void *data, obs_hotkey_pair_id id,
 bool recursion_effect_disable_hotkey(void *data, obs_hotkey_pair_id id,
 				     obs_hotkey_t *hotkey, bool pressed)
 {
+	UNUSED_PARAMETER(id);
+	UNUSED_PARAMETER(hotkey);
 	struct recursion_effect_info *recursion_effect = data;
 	if (!pressed)
 		return false;
@@ -210,6 +195,26 @@ static void recursion_effect_update(void *data, obs_data_t *settings)
 	recursion_effect->inversed = obs_data_get_bool(settings, S_INVERSED);
 	recursion_effect->reset_trigger =
 		obs_data_get_int(settings, S_RESET_TRIGGER);
+}
+
+static void *recursion_effect_create(obs_data_t *settings, obs_source_t *source)
+{
+	struct recursion_effect_info *recursion_effect =
+		bzalloc(sizeof(struct recursion_effect_info));
+	recursion_effect->source = source;
+	recursion_effect->hotkey = OBS_INVALID_HOTKEY_PAIR_ID;
+	recursion_effect_update(recursion_effect, settings);
+	return recursion_effect;
+}
+
+static void recursion_effect_destroy(void *data)
+{
+	struct recursion_effect_info *recursion_effect = data;
+	if (recursion_effect->hotkey != OBS_INVALID_HOTKEY_PAIR_ID) {
+		obs_hotkey_pair_unregister(recursion_effect->hotkey);
+	}
+	free_textures(recursion_effect);
+	bfree(recursion_effect);
 }
 
 static void draw_frame(struct recursion_effect_info *f)
@@ -359,6 +364,7 @@ static void recursion_effect_tick(void *data, float t)
 
 static obs_properties_t *recursion_effect_properties(void *data)
 {
+	UNUSED_PARAMETER(data);
 	obs_properties_t *props = obs_properties_create();
 	obs_property_t *p = obs_properties_add_int(
 		props, S_DELAY_MS, obs_module_text("Delay"), 1, 1000, 1);
@@ -391,6 +397,12 @@ static obs_properties_t *recursion_effect_properties(void *data)
 				  RESET_TRIGGER_DEACTIVATE);
 	obs_property_list_add_int(p, obs_module_text("ResetTrigger.Enable"),
 				  RESET_TRIGGER_ENABLE);
+
+	obs_properties_add_text(
+		props, "plugin_info",
+		"<a href=\"https://obsproject.com/forum/resources/recursion-effect.1008/\">Recursion Effect</a> (" PROJECT_VERSION
+		") by <a href=\"https://www.exeldro.com\">Exeldro</a>",
+		OBS_TEXT_INFO);
 
 	return props;
 }
