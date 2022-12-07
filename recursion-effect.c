@@ -173,8 +173,8 @@ static void recursion_effect_update(void *data, obs_data_t *settings)
 				recursion_effect, recursion_effect);
 		}
 	}
-	uint64_t delay_ns =
-		(uint64_t)obs_data_get_int(settings, S_DELAY_MS) * 1000000ULL;
+	const long long d = obs_data_get_int(settings, S_DELAY_MS);
+	const uint64_t delay_ns = (d > 0 ? (uint64_t)d : 1) * 1000000ULL;
 	if (delay_ns != recursion_effect->delay_ns) {
 		recursion_effect->delay_ns = delay_ns;
 		if (recursion_effect->interval_ns)
