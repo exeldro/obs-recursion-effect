@@ -36,6 +36,8 @@ static const char *recursion_effect_get_name(void *type_data)
 
 static void free_textures(struct recursion_effect_info *f)
 {
+	if (!f->frames.size && !f->render)
+		return;
 	obs_enter_graphics();
 	while (f->frames.size) {
 		struct frame frame;
@@ -224,14 +226,16 @@ static void draw_frame(struct recursion_effect_info *f)
 
 	gs_effect_t *effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
 	gs_texture_t *tex = gs_texrender_get_texture(frame.render);
-	if (tex) {
-		gs_eparam_t *image =
-			gs_effect_get_param_by_name(effect, "image");
-		gs_effect_set_texture(image, tex);
+	if (!tex)
+		return;
+	gs_blend_state_push();
+	gs_blend_function(GS_BLEND_ONE, GS_BLEND_INVSRCALPHA);
+	gs_eparam_t *image = gs_effect_get_param_by_name(effect, "image");
+	gs_effect_set_texture(image, tex);
 
-		while (gs_effect_loop(effect, "Draw"))
-			gs_draw_sprite(tex, 0, f->cx, f->cy);
-	}
+	while (gs_effect_loop(effect, "Draw"))
+		gs_draw_sprite(tex, 0, f->cx, f->cy);
+	gs_blend_state_pop();
 }
 
 static void recursion_effect_video_render(void *data, gs_effect_t *effect)
@@ -257,24 +261,19 @@ static void recursion_effect_video_render(void *data, gs_effect_t *effect)
 	gs_texrender_reset(f->render);
 
 	gs_blend_state_push();
-	gs_blend_function(GS_BLEND_SRCALPHA, GS_BLEND_INVSRCALPHA);
-
+	if (f->inversed) {
+		gs_blend_function(GS_BLEND_SRCALPHA, GS_BLEND_INVSRCALPHA);
+	} else {
+		gs_blend_function(GS_BLEND_ONE, GS_BLEND_INVSRCALPHA);
+	}
 	if (gs_texrender_begin(f->render, f->cx, f->cy)) {
-		uint32_t parent_flags = obs_source_get_output_flags(target);
-		const bool custom_draw =
-			(parent_flags & OBS_SOURCE_CUSTOM_DRAW) != 0;
-		const bool async = (parent_flags & OBS_SOURCE_ASYNC) != 0;
-
 		struct vec4 clear_color;
 		vec4_zero(&clear_color);
 		gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
 		gs_ortho(0.0f, (float)f->cx, 0.0f, (float)f->cy, -100.0f,
 			 100.0f);
 		if (f->inversed) {
-			if (target == parent && !custom_draw && !async)
-				obs_source_default_render(target);
-			else
-				obs_source_video_render(target);
+			obs_source_video_render(target);
 		}
 		gs_texture_t *tex = gs_texrender_get_texture(frame.render);
 		if (tex) {
@@ -296,10 +295,7 @@ static void recursion_effect_video_render(void *data, gs_effect_t *effect)
 		}
 
 		if (!f->inversed) {
-			if (target == parent && !custom_draw && !async)
-				obs_source_default_render(target);
-			else
-				obs_source_video_render(target);
+			obs_source_video_render(target);
 		}
 
 		gs_texrender_end(f->render);
@@ -444,7 +440,8 @@ void recursion_effect_deactivate(void *data)
 struct obs_source_info recursion_effect_filter = {
 	.id = "recursion_effect_filter",
 	.type = OBS_SOURCE_TYPE_FILTER,
-	.output_flags = OBS_OUTPUT_VIDEO,
+	.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_SRGB |
+			OBS_SOURCE_CUSTOM_DRAW,
 	.get_name = recursion_effect_get_name,
 	.create = recursion_effect_create,
 	.destroy = recursion_effect_destroy,
