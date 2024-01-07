@@ -6,6 +6,7 @@
 #define S_SCALE_X "scale_x"
 #define S_SCALE_Y "scale_y"
 #define S_ROTATION "rotation"
+#define S_ALPHA "alpha"
 #define S_INVERSED "inversed"
 #define S_RESET_TRIGGER "reset_trigger"
 

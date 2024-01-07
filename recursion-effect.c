@@ -1,5 +1,6 @@
 #include <obs-module.h>
 #include <util/circlebuf.h>
+#include <util/dstr.h>
 #include "recursion-effect.h"
 #include "version.h"
 
@@ -18,6 +19,10 @@ struct recursion_effect_info {
 	struct vec2 offset;
 	struct vec2 scale;
 	float rotation;
+	gs_effect_t *effect;
+	gs_eparam_t *param_image;
+	gs_eparam_t *param_multiplier;
+	float alpha;
 
 	uint64_t interval_ns;
 	uint32_t cx;
@@ -194,6 +199,8 @@ static void recursion_effect_update(void *data, obs_data_t *settings)
 		(float)obs_data_get_double(settings, S_SCALE_Y);
 	recursion_effect->rotation =
 		(float)obs_data_get_double(settings, S_ROTATION);
+	recursion_effect->alpha =
+		(float)obs_data_get_double(settings, S_ALPHA);
 	recursion_effect->inversed = obs_data_get_bool(settings, S_INVERSED);
 	recursion_effect->reset_trigger =
 		obs_data_get_int(settings, S_RESET_TRIGGER);
@@ -205,6 +212,22 @@ static void *recursion_effect_create(obs_data_t *settings, obs_source_t *source)
 		bzalloc(sizeof(struct recursion_effect_info));
 	recursion_effect->source = source;
 	recursion_effect->hotkey = OBS_INVALID_HOTKEY_PAIR_ID;
+
+	struct dstr filename = {0};
+	dstr_cat(&filename, obs_get_module_data_path(obs_current_module()));
+	dstr_cat(&filename, "/effects/render.effect");
+	char *errors = NULL;
+	obs_enter_graphics();
+	recursion_effect->effect =
+		gs_effect_create_from_file(filename.array, &errors);
+	obs_leave_graphics();
+	dstr_free(&filename);
+
+	recursion_effect->param_image =
+		gs_effect_get_param_by_name(recursion_effect->effect, "image");
+	recursion_effect->param_multiplier =
+		gs_effect_get_param_by_name(recursion_effect->effect, "multiplier");
+
 	recursion_effect_update(recursion_effect, settings);
 	return recursion_effect;
 }
@@ -216,6 +239,11 @@ static void recursion_effect_destroy(void *data)
 		obs_hotkey_pair_unregister(recursion_effect->hotkey);
 	}
 	free_textures(recursion_effect);
+
+	obs_enter_graphics();
+	if (recursion_effect->effect)
+		gs_effect_destroy(recursion_effect->effect);
+	obs_leave_graphics();
 	bfree(recursion_effect);
 }
 
@@ -277,18 +305,15 @@ static void recursion_effect_video_render(void *data, gs_effect_t *effect)
 		}
 		gs_texture_t *tex = gs_texrender_get_texture(frame.render);
 		if (tex) {
-			gs_effect_t *effect2 =
-				obs_get_base_effect(OBS_EFFECT_DEFAULT);
 			gs_matrix_push();
 			gs_matrix_translate3f(f->offset.x, f->offset.y, 0.0f);
 			gs_matrix_scale3f(f->scale.x, f->scale.y, 1.0f);
 			gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, RAD(f->rotation));
 
-			gs_eparam_t *image =
-				gs_effect_get_param_by_name(effect2, "image");
-			gs_effect_set_texture(image, tex);
+			gs_effect_set_texture(f->param_image, tex);
+			gs_effect_set_float(f->param_multiplier, f->alpha);
 
-			while (gs_effect_loop(effect2, "Draw"))
+			while (gs_effect_loop(f->effect, "Draw"))
 				gs_draw_sprite(tex, 0, f->cx, f->cy);
 			gs_matrix_identity();
 			gs_matrix_pop();
@@ -365,16 +390,22 @@ static obs_properties_t *recursion_effect_properties(void *data)
 	obs_property_t *p = obs_properties_add_int(
 		props, S_DELAY_MS, obs_module_text("Delay"), 1, 1000, 1);
 	obs_property_int_set_suffix(p, "ms");
-	obs_properties_add_float(props, S_OFFSET_X, obs_module_text("OffsetX"),
+	obs_properties_add_float_slider(props, S_OFFSET_X, obs_module_text("OffsetX"),
 				 -1000.0, 1000.0, 1);
-	obs_properties_add_float(props, S_OFFSET_Y, obs_module_text("OffsetY"),
+	obs_properties_add_float_slider(props, S_OFFSET_Y,
+					obs_module_text("OffsetY"),
 				 -1000.0, 1000.0, 1);
-	obs_properties_add_float(props, S_SCALE_X, obs_module_text("ScaleX"),
-				 0.01, 1000.0, 0.01);
-	obs_properties_add_float(props, S_SCALE_Y, obs_module_text("ScaleY"),
-				 0.01, 1000.0, 0.01);
-	obs_properties_add_float(props, S_ROTATION, obs_module_text("Rotation"),
+	obs_properties_add_float_slider(props, S_SCALE_X,
+					obs_module_text("ScaleX"),
+				 0.01, 10.0, 0.01);
+	obs_properties_add_float_slider(props, S_SCALE_Y,
+					obs_module_text("ScaleY"),
+				 0.01, 10.0, 0.01);
+	obs_properties_add_float_slider(props, S_ROTATION,
+					obs_module_text("Rotation"),
 				 -360.0, 360.0, 1.0);
+	obs_properties_add_float_slider(props, S_ALPHA, obs_module_text("Alpha"),
+				 0.001, 1.0, 0.001);
 	obs_properties_add_bool(props, S_INVERSED, obs_module_text("Inversed"));
 
 	p = obs_properties_add_list(props, S_RESET_TRIGGER,
@@ -407,6 +438,7 @@ void recursion_effect_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_double(settings, S_SCALE_X, 1.0);
 	obs_data_set_default_double(settings, S_SCALE_Y, 1.0);
+	obs_data_set_default_double(settings, S_ALPHA, 1.0);
 }
 
 void recursion_effect_show(void *data)
