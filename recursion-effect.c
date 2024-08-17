@@ -1,5 +1,5 @@
 #include <obs-module.h>
-#include <util/circlebuf.h>
+#include <util/deque.h>
 #include <util/dstr.h>
 #include "recursion-effect.h"
 #include "version.h"
@@ -12,7 +12,7 @@ struct frame {
 struct recursion_effect_info {
 	obs_source_t *source;
 	obs_hotkey_pair_id hotkey;
-	struct circlebuf frames;
+	struct deque frames;
 	gs_texrender_t *render;
 	size_t frame_pos;
 	uint64_t delay_ns;
@@ -46,10 +46,10 @@ static void free_textures(struct recursion_effect_info *f)
 	obs_enter_graphics();
 	while (f->frames.size) {
 		struct frame frame;
-		circlebuf_pop_front(&f->frames, &frame, sizeof(frame));
+		deque_pop_front(&f->frames, &frame, sizeof(frame));
 		gs_texrender_destroy(frame.render);
 	}
-	circlebuf_free(&f->frames);
+	deque_free(&f->frames);
 	if (f->render) {
 		gs_texrender_destroy(f->render);
 		f->render = NULL;
@@ -57,7 +57,7 @@ static void free_textures(struct recursion_effect_info *f)
 	obs_leave_graphics();
 }
 
-static size_t num_frames(struct circlebuf *buf)
+static size_t num_frames(struct deque *buf)
 {
 	return buf->size / sizeof(struct frame);
 }
@@ -85,11 +85,11 @@ static void update_interval(struct recursion_effect_info *f,
 
 		obs_enter_graphics();
 
-		circlebuf_upsize(&f->frames, num * sizeof(struct frame));
+		deque_upsize(&f->frames, num * sizeof(struct frame));
 
 		for (size_t i = prev_num; i < num; i++) {
 			struct frame *frame =
-				circlebuf_data(&f->frames, i * sizeof(*frame));
+				deque_data(&f->frames, i * sizeof(*frame));
 			frame->render =
 				gs_texrender_create(GS_RGBA, GS_ZS_NONE);
 		}
@@ -101,7 +101,7 @@ static void update_interval(struct recursion_effect_info *f,
 
 		while (num_frames(&f->frames) > num) {
 			struct frame frame;
-			circlebuf_pop_front(&f->frames, &frame, sizeof(frame));
+			deque_pop_front(&f->frames, &frame, sizeof(frame));
 			gs_texrender_destroy(frame.render);
 		}
 
@@ -250,7 +250,7 @@ static void recursion_effect_destroy(void *data)
 static void draw_frame(struct recursion_effect_info *f)
 {
 	struct frame frame;
-	circlebuf_peek_back(&f->frames, &frame, sizeof(frame));
+	deque_peek_back(&f->frames, &frame, sizeof(frame));
 
 	gs_effect_t *effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
 	gs_texture_t *tex = gs_texrender_get_texture(frame.render);
@@ -284,7 +284,7 @@ static void recursion_effect_video_render(void *data, gs_effect_t *effect)
 	}
 
 	struct frame frame;
-	circlebuf_pop_front(&f->frames, &frame, sizeof(frame));
+	deque_pop_front(&f->frames, &frame, sizeof(frame));
 
 	gs_texrender_reset(f->render);
 
@@ -332,7 +332,7 @@ static void recursion_effect_video_render(void *data, gs_effect_t *effect)
 	f->render = frame.render;
 	frame.render = tmp;
 
-	circlebuf_push_back(&f->frames, &frame, sizeof(frame));
+	deque_push_back(&f->frames, &frame, sizeof(frame));
 	draw_frame(f);
 	f->processed_frame = true;
 
